@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+chromadb
+openai
+pydantic
+python-dotenv
+pdfplumber
+psycopg2-binary
+redis
+celery
+requests
+sqlalchemy
+sentence-transformers
