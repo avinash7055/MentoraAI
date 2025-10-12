@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
-from db.database import get_db
-from services.tracker_agent import TrackerAgent
+from backend.db.database import get_db
+from backend.services.tracker_agent import TrackerAgent
 
 router = APIRouter(prefix="/tracker", tags=["TrackerAgent"])
 

@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-chromadb
+chromadb>=0.4.0
 openai
 pydantic
 python-dotenv
@@ -11,3 +11,4 @@ celery
 requests
 sqlalchemy
 sentence-transformers
+pydantic-settings

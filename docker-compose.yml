@@ -4,12 +4,24 @@ services:
     build: .
     ports:
       - "8000:8000"
+    environment:
+      - DB_URL=postgresql+asyncpg://postgres:password@db:5432/mentor
+      - TEST_DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/mentor_test
+      - REDIS_URL=redis://redis:6379/0
+      - CHROMA_PATH=./data/chroma
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DEBUG=true
+      - RELOAD=true
     env_file:
       - .env
     depends_on:
       - db
       - redis
       - chroma
+    volumes:
+      - ./backend:/app/backend
+      - ./data:/app/data
 
   db:
     image: postgres:15

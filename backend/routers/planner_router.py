@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
-from db.database import get_db
-from services.planner_agent import PlannerAgent
+from backend.db.database import get_db
+from backend.services.planner_agent import PlannerAgent
 
 router = APIRouter(prefix="/planner", tags=["PlannerAgent"])
 
