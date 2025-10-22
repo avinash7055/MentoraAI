@@ -1,0 +1,82 @@
+WHATSAPP AI TUTORIAL - SIMPLE ARCHITECTURE DIAGRAM
+==================================================
+
+┌─────────────────────────────────────────────────────────────────┐
+│                        EXTERNAL LAYER                           │
+├─────────────────────────────────────────────────────────────────┤
+│  WhatsApp Business API  │  Groq API  │  OpenAI API             │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        API GATEWAY                             │
+├─────────────────────────────────────────────────────────────────┤
+│                    FastAPI Application                         │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐│
+│  │WhatsApp    │ │Tutor        │ │Quiz         │ │Planner      ││
+│  │Router       │ │Router       │ │Router       │ │Router       ││
+│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    MESSAGE PROCESSING                          │
+├─────────────────────────────────────────────────────────────────┤
+│  Message Processor → AI Intent Classifier → Agent Manager     │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        AI AGENTS                               │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐│
+│  │Tutor        │ │Quiz         │ │Planner      │ │Tracker      ││
+│  │Agent         │ │Agent        │ │Agent        │ │Agent        ││
+│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      CORE SERVICES                             │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐│
+│  │RAG         │ │LLM          │ │WhatsApp     │ │Message      ││
+│  │Service      │ │Service      │ │Service      │ │Processor    ││
+│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        DATA LAYER                              │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐               │
+│  │PostgreSQL   │ │ChromaDB     │ │Redis        │               │
+│  │Database     │ │Vector DB    │ │Cache        │               │
+│  └─────────────┘ └─────────────┘ └─────────────┘               │
+└─────────────────────────────────────────────────────────────────┘
+
+DATA FLOW:
+==========
+User → WhatsApp → Webhook → FastAPI → Message Processor → Agent Manager
+  ↓
+AI Agent → RAG Service → ChromaDB → LLM Service → Response
+  ↓
+WhatsApp Service → WhatsApp API → User
+
+KEY FEATURES:
+=============
+• Multi-Agent Architecture (4 specialized agents)
+• RAG-powered responses using document retrieval
+• AI intent classification for message routing
+• PostgreSQL for user data and progress tracking
+• ChromaDB for vector embeddings and document search
+• Docker containerization for easy deployment
+• Real-time WhatsApp messaging integration
+
+TECHNOLOGY STACK:
+=================
+• Backend: FastAPI + Python 3.11
+• AI/ML: Groq API, OpenAI, Sentence Transformers
+• Database: PostgreSQL, ChromaDB, Redis
+• Infrastructure: Docker, Docker Compose
+• Integration: WhatsApp Business API
