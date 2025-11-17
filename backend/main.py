@@ -5,9 +5,9 @@ from backend.routers import (
     quiz_router,
     planner_router,
     tracker_router,
-    webhook_router,
-    whatsapp_router
+    telegram_router
 )
+from backend.config import settings
 from backend.utils.logger import setup_logging
 
 # Set up logging
@@ -15,8 +15,8 @@ setup_logging()
 
 app = FastAPI(
     title="AI UPSC Mentor",
-    description="WhatsApp-based multi-agent tutoring system for UPSC aspirants",
-    version="1.0.0"
+    description="Multi-platform AI tutoring system for UPSC aspirants with support for Telegram and WhatsApp",
+    version="1.1.0"
 )
 
 # Configure CORS
@@ -29,12 +29,13 @@ app.add_middleware(
 )
 
 # Include all routes
-app.include_router(webhook_router.router)
 app.include_router(tutor_router.router)
 app.include_router(quiz_router.router)
 app.include_router(planner_router.router)
 app.include_router(tracker_router.router)
-app.include_router(whatsapp_router.router)  # WhatsApp webhook router
+
+# Platform-specific webhook routers
+app.include_router(telegram_router.router, prefix="/telegram", tags=["telegram"])
 
 @app.get("/")
 def root():

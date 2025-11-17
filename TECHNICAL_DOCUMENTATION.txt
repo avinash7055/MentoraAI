@@ -1,0 +1,1347 @@
+WhatsApp AI Tutorial - Technical Documentation
+
+Table of Contents
+1. Project Overview
+2. Architecture
+3. Technology Stack
+4. Database Schema
+5. API Documentation
+6. AI Agents
+7. Services
+8. Configuration
+9. Deployment
+10. Development Setup
+11. Testing
+12. Monitoring & Logging
+13. Security
+14. Performance Optimization
+15. Troubleshooting
+
+---
+
+1. PROJECT OVERVIEW
+
+MentoraAI is a sophisticated WhatsApp-based AI tutoring system designed specifically for UPSC (Union Public Service Commission) aspirants. The application leverages a multi-agent architecture to provide personalized educational support through WhatsApp messaging.
+
+Key Features
+• Multi-Agent System: 4 specialized AI agents (Tutor, Quiz, Planner, Tracker)
+• RAG Integration: Retrieval-Augmented Generation for accurate responses
+• WhatsApp Business API: Real-time messaging integration
+• Progress Tracking: Comprehensive study analytics and progress monitoring
+• Study Planning: Automated study plan generation and management
+• Quiz System: Dynamic quiz generation with evaluation
+
+Target Users
+• UPSC aspirants seeking personalized tutoring
+• Students preparing for competitive exams
+• Educational institutions offering AI-powered support
+
+---
+
+2. ARCHITECTURE
+
+High-Level Architecture
+
+┌─────────────────────────────────────────────────────────────────┐
+│                        EXTERNAL LAYER                           │
+├─────────────────────────────────────────────────────────────────┤
+│  WhatsApp Business API  │  Groq API  │  OpenAI API             │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        API GATEWAY                             │
+├─────────────────────────────────────────────────────────────────┤
+│                    FastAPI Application                         │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐│
+│  │WhatsApp    │ │Tutor        │ │Quiz         │ │Planner      ││
+│  │Router       │ │Router       │ │Router       │ │Router       ││
+│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘│
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐│
+│  │Tracker      │ │Webhook      │ │Message      │ │Agent        ││
+│  │Router       │ │Router       │ │Processor    │ │Manager      ││
+│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        SERVICE LAYER                           │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐│
+│  │Tutor        │ │Quiz        │ │Planner      │ │Tracker      ││
+│  │Agent        │ │Agent       │ │Agent        │ │Agent        ││
+│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘│
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐│
+│  │RAG          │ │LLM          │ │WhatsApp    │ │User         ││
+│  │Service      │ │Service      │ │Service     │ │Service      ││
+│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        DATA LAYER                              │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐               │
+│  │PostgreSQL   │ │ChromaDB     │ │Redis        │               │
+│  │Database     │ │Vector DB    │ │Cache        │               │
+│  └─────────────┘ └─────────────┘ └─────────────┘               │
+└─────────────────────────────────────────────────────────────────┘
+
+Data Flow
+
+1. User → WhatsApp → Webhook → FastAPI → Message Processor → Agent Manager
+2. AI Agent → RAG Service → ChromaDB → LLM Service → Response
+3. WhatsApp Service → WhatsApp API → User
+
+Core Components
+
+1. Message Processing Pipeline
+• WhatsApp Webhook: Receives incoming messages
+• Message Processor: AI-powered intent classification
+• Agent Manager: Routes messages to appropriate agents
+• Response Generation: AI-powered response creation
+
+2. AI Agent System
+• Base Agent: Abstract base class for all agents
+• Tutor Agent: Educational content and explanations
+• Quiz Agent: Quiz generation and evaluation
+• Planner Agent: Study plan creation and management
+• Tracker Agent: Progress monitoring and analytics
+
+3. Data Management
+• PostgreSQL: User data, study plans, progress tracking
+• ChromaDB: Vector embeddings for document retrieval
+• Redis: Caching and session management
+
+---
+
+3. TECHNOLOGY STACK
+
+Backend Framework
+• FastAPI: Modern, fast web framework for building APIs
+• Python 3.11+: Programming language
+• Uvicorn: ASGI server for FastAPI
+
+AI/ML Services
+• Groq API: Primary LLM service (Mixtral-8x7b-32768)
+• OpenAI API: Backup LLM service
+• Sentence Transformers: Text embeddings
+• Hugging Face Transformers: Intent classification
+
+Databases
+• PostgreSQL: Primary database for structured data
+• ChromaDB: Vector database for document embeddings
+• Redis: Caching and session storage
+
+External APIs
+• WhatsApp Business API: Messaging platform
+• Supabase: Optional cloud database hosting
+
+Development Tools
+• Docker: Containerization
+• Docker Compose: Multi-container orchestration
+• SQLAlchemy: ORM for database operations
+• Pydantic: Data validation and settings management
+
+---
+
+4. DATABASE SCHEMA
+
+Core Tables
+
+Users Table
+CREATE TABLE "MentoraAI".users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    phone_number VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(100),
+    email VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_active TIMESTAMP WITH TIME ZONE,
+    preferences JSONB
+);
+
+Study Plans Table
+CREATE TABLE "MentoraAI".study_plans (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES "MentoraAI".users(id),
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    status VARCHAR(50) DEFAULT 'active',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+Study Sessions Table
+CREATE TABLE "MentoraAI".study_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES "MentoraAI".users(id),
+    plan_id UUID REFERENCES "MentoraAI".study_plans(id),
+    subject VARCHAR(100) NOT NULL,
+    topic VARCHAR(255) NOT NULL,
+    duration_minutes INTEGER NOT NULL,
+    completed BOOLEAN DEFAULT FALSE,
+    scheduled_for TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+Quiz System Tables
+CREATE TABLE "MentoraAI".quizzes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES "MentoraAI".users(id),
+    topic VARCHAR(255) NOT NULL,
+    difficulty VARCHAR(50) NOT NULL,
+    completed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    completed_at TIMESTAMP WITH TIME ZONE,
+    score INTEGER
+);
+
+CREATE TABLE "MentoraAI".quiz_questions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    quiz_id UUID REFERENCES "MentoraAI".quizzes(id),
+    question_text TEXT NOT NULL,
+    options JSONB NOT NULL,
+    correct_answer INTEGER NOT NULL,
+    explanation TEXT
+);
+
+CREATE TABLE "MentoraAI".user_responses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES "MentoraAI".users(id),
+    question_id UUID REFERENCES "MentoraAI".quiz_questions(id),
+    quiz_id UUID REFERENCES "MentoraAI".quizzes(id),
+    selected_option INTEGER NOT NULL,
+    is_correct BOOLEAN NOT NULL,
+    answered_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+Progress Tracking Table
+CREATE TABLE "MentoraAI".progress_tracking (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES "MentoraAI".users(id),
+    metric_name VARCHAR(100) NOT NULL,
+    metric_value NUMERIC NOT NULL,
+    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    details JSONB
+);
+
+Notifications Table
+CREATE TABLE "MentoraAI".notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES "MentoraAI".users(id),
+    message TEXT NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    scheduled_for TIMESTAMP WITH TIME ZONE NOT NULL,
+    sent BOOLEAN DEFAULT FALSE,
+    sent_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+---
+
+5. API DOCUMENTATION
+
+Base URL
+http://localhost:8000
+
+Authentication
+Currently, the API uses WhatsApp phone numbers as user identifiers. Future versions may implement JWT-based authentication.
+
+Core Endpoints
+
+1. Health Check
+GET /health
+Response:
+{
+  "status": "ok"
+}
+
+2. Root Endpoint
+GET /
+Response:
+{
+  "message": "AI UPSC Mentor API is running 🚀",
+  "docs": "/docs",
+  "redoc": "/redoc"
+}
+
+Tutor Agent Endpoints
+
+Get Answer
+GET /tutor/answer?query={question}
+Parameters:
+• query (string, required): The educational question
+
+Response:
+{
+  "answer": "Detailed educational response..."
+}
+
+Quiz Agent Endpoints
+
+Generate Quiz
+GET /quiz/generate?topic={topic}&num_questions={count}&difficulty={level}
+Parameters:
+• topic (string, required): Quiz topic
+• num_questions (integer, optional): Number of questions (1-20, default: 5)
+• difficulty (string, optional): Difficulty level (easy/medium/hard, default: medium)
+
+Response:
+{
+  "status": "success",
+  "topic": "Indian Polity",
+  "difficulty": "medium",
+  "questions": [
+    {
+      "question": "What is the capital of India?",
+      "options": ["A. Mumbai", "B. Kolkata", "C. New Delhi", "D. Chennai"],
+      "answer": "C"
+    }
+  ]
+}
+
+Evaluate Quiz
+POST /quiz/evaluate
+Request Body:
+{
+  "questions": [
+    {
+      "question": "What is the capital of India?",
+      "options": ["A. Mumbai", "B. Kolkata", "C. New Delhi", "D. Chennai"],
+      "answer": "C"
+    }
+  ],
+  "user_answers": ["C"]
+}
+
+Response:
+{
+  "status": "success",
+  "score_percent": 100.0,
+  "correct": 1,
+  "total": 1,
+  "details": [
+    {
+      "question_idx": 0,
+      "question": "What is the capital of India?",
+      "user_answer": "C",
+      "correct_answer": "C",
+      "is_correct": true
+    }
+  ]
+}
+
+Planner Agent Endpoints
+
+Generate Study Plan
+GET /planner/generate?user_id={user_id}
+Parameters:
+• user_id (string, required): User identifier
+
+Response:
+{
+  "status": "success",
+  "plan": {
+    "weekly_schedule": [...],
+    "total_hours": 252,
+    "start_date": "2024-01-01",
+    "end_date": "2024-03-31"
+  },
+  "message": "Created a new study plan for you!"
+}
+
+Tracker Agent Endpoints
+
+Update Progress
+POST /tracker/update?user_id={user_id}&subject={subject}&delta={delta}
+Parameters:
+• user_id (string, required): User identifier
+• subject (string, required): Subject name
+• delta (float, required): Progress increment
+
+Get Progress Report
+GET /tracker/report?user_id={user_id}
+Parameters:
+• user_id (string, required): User identifier
+
+WhatsApp Webhook Endpoints
+
+Verify Webhook
+GET /whatsapp/webhook?hub.mode=subscribe&hub.verify_token={token}&hub.challenge={challenge}
+
+Handle Messages
+POST /whatsapp/webhook
+Request Body: WhatsApp webhook payload
+
+---
+
+6. AI AGENTS
+
+Base Agent
+All agents inherit from the BaseAgent abstract class, which defines the common interface:
+
+class BaseAgent(ABC):
+    def __init__(self, agent_name: str):
+        self.agent_name = agent_name
+    
+    @abstractmethod
+    async def process_message(self, phone_number: str, message: str, context: Optional[Dict[str, Any]] = None) -> str:
+        pass
+    
+    def get_name(self) -> str:
+        return self.agent_name
+    
+    async def handle_error(self, error: Exception) -> str:
+        # Error handling implementation
+
+Tutor Agent
+Purpose: Provides educational content and explanations for UPSC topics.
+
+Key Features:
+• RAG-powered responses using document retrieval
+• Contextual answer generation
+• Source citation and references
+• Error handling and fallback responses
+
+Process Flow:
+1. Receives educational query
+2. Uses RAG service to retrieve relevant documents
+3. Generates contextual response using LLM
+4. Formats response with sources and citations
+5. Returns formatted educational content
+
+Example Usage:
+User: "Explain the Indian Constitution"
+Tutor Agent: "🔍 Question: Explain the Indian Constitution
+
+📚 Answer:
+The Indian Constitution is the supreme law of India, adopted on 26th November 1949...
+
+📖 Sources:
+1. Indian Polity by Laxmikant
+2. Constitution of India - Official Document
+
+Need more details? Just ask! 😊"
+
+Quiz Agent
+Purpose: Generates and evaluates UPSC-style quizzes with session management.
+
+Key Features:
+• Dynamic quiz generation based on topics
+• Multiple difficulty levels (easy, medium, hard)
+• Session management and progress tracking
+• Real-time evaluation and feedback
+• Hint and skip functionality
+
+Process Flow:
+1. Receives quiz request with topic and difficulty
+2. Uses RAG to retrieve relevant content
+3. Generates MCQs using LLM with structured prompts
+4. Manages quiz sessions and user responses
+5. Provides real-time feedback and scoring
+
+Session Management:
+• Active quiz tracking per user
+• Question progression and scoring
+• Response validation and feedback
+• Quiz completion and results
+
+Example Usage:
+User: "Quiz me on Indian Polity"
+Quiz Agent: "Question 1 of 5:
+
+What is the capital of India?
+
+A. Mumbai
+B. Kolkata
+C. New Delhi
+D. Chennai
+
+Your answer (A/B/C/D):"
+
+Planner Agent
+Purpose: Creates and manages personalized study plans for UPSC preparation.
+
+Key Features:
+• Customizable study duration and daily hours
+• Focus area selection
+• Weekly schedule generation
+• Progress tracking integration
+• Plan modification and updates
+
+Process Flow:
+1. Parses user preferences (duration, hours, focus areas)
+2. Generates structured study plan
+3. Creates weekly schedules with topic distribution
+4. Stores plan and tracks progress
+5. Provides plan viewing and modification
+
+Study Plan Structure:
+• Duration: 4-52 weeks
+• Daily study time: 1-12 hours
+• Focus areas: Prelims, Mains, Optional subjects
+• Weekly schedules with topic distribution
+
+Example Usage:
+User: "Create a 12-week study plan with 3 hours daily"
+Planner Agent: "📚 Your Study Plan Has Been Created! 📚
+
+📅 Duration: 12 weeks
+⏰ Daily Study Time: 3 hours
+🎯 Focus Areas: General Studies
+
+Here's your study plan for the first week:
+
+Monday: Indian History, Indian Polity
+Tuesday: Geography, Economics
+Wednesday: Science, Environment
+Thursday: Current Affairs, Practice Tests
+Friday: Optional Subject, Revision
+Saturday: Mock Tests, Analysis
+Sunday: Rest/Review
+
+Type 'view plan' to see your full plan..."
+
+Tracker Agent
+Purpose: Monitors study progress and provides analytics and insights.
+
+Key Features:
+• Study session logging
+• Progress analytics and insights
+• Goal setting and tracking
+• Streak monitoring
+• Performance metrics
+
+Process Flow:
+1. Parses study session data from user messages
+2. Updates performance metrics and statistics
+3. Calculates streaks and progress percentages
+4. Generates analytics and insights
+5. Manages goals and targets
+
+Analytics Provided:
+• Daily, weekly, and total study time
+• Topic-wise time distribution
+• Study streak tracking
+• Most productive time analysis
+• Goal progress monitoring
+
+Example Usage:
+User: "Studied Indian Polity for 45 minutes"
+Tracker Agent: "✅ Study Session Logged!
+
+⏱️ Duration: 45 minutes
+📚 Topic: Indian Polity
+
+Keep up the good work! 💪"
+
+---
+
+7. SERVICES
+
+RAG Service
+Purpose: Retrieval-Augmented Generation for document-based responses.
+
+Key Features:
+• Document embedding and storage in ChromaDB
+• Semantic search and retrieval
+• Context preparation for LLM
+• Source citation and references
+
+Implementation:
+class RAGService:
+    def __init__(self):
+        self.collection = chromadb.Client().get_or_create_collection("upsc_docs")
+    
+    def retrieve_and_generate(self, query: str) -> str:
+        # Retrieve relevant documents
+        docs = self.collection.query(query_texts=[query], n_results=3)
+        
+        # Prepare context
+        context = "\n\n".join(docs["documents"][0])
+        
+        # Generate response using LLM
+        response = self.llm_service.generate_text(f"Context: {context}\n\nQuery: {query}")
+        
+        return response
+
+LLM Service
+Purpose: Interface for Large Language Model interactions.
+
+Key Features:
+• Groq API integration (primary)
+• OpenAI API integration (backup)
+• Model configuration and management
+• Error handling and fallback
+
+Configuration:
+class LLMService:
+    def __init__(self, model: str = "qwen/qwen3-32b", temperature: float = 0.7):
+        self.model = model
+        self.temperature = temperature
+        self.client = Groq(api_key=settings.GROQ_API_KEY)
+
+WhatsApp Service
+Purpose: Handles WhatsApp Business API interactions.
+
+Key Features:
+• Message sending and receiving
+• Template message support
+• Media handling
+• Webhook verification
+
+Message Types Supported:
+• Text messages
+• Template messages
+• Interactive messages
+• Media messages
+
+Message Processor
+Purpose: AI-powered intent classification and message routing.
+
+Key Features:
+• Transformer-based intent classification
+• Entity extraction
+• Context understanding
+• Fallback handling
+
+Intent Types:
+• tutor: Educational queries
+• quiz: Quiz requests
+• plan: Study planning
+• track: Progress tracking
+• greeting: Greetings
+• help: Help requests
+
+---
+
+8. CONFIGURATION
+
+Environment Variables
+
+Create a .env file with the following variables:
+
+# Application Settings
+APP_NAME=AI UPSC Mentor
+DEBUG=false
+ENVIRONMENT=production
+LOG_LEVEL=INFO
+
+# Server Settings
+HOST=0.0.0.0
+PORT=8000
+RELOAD=false
+
+# Database Settings
+DATABASE_URL=postgresql://postgres:password@localhost:5432/upsc_mentor
+TEST_DATABASE_URL=postgresql://postgres:password@localhost:5432/upsc_mentor_test
+
+# Supabase Settings (Optional)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-supabase-key
+SUPABASE_DB_PASSWORD=your-db-password
+
+# AI Services
+LLM_MODEL=qwen/qwen3-32b
+GROQ_API_KEY=your-groq-api-key
+OPENAI_API_KEY=your-openai-api-key
+
+# Vector Database
+CHROMA_PATH=./data/chroma
+
+# Security
+SECRET_KEY=your-secret-key
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+
+# WhatsApp Business API
+WHATSAPP_TOKEN=your-whatsapp-token
+WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
+WHATSAPP_PHONE_ID=your-phone-id
+WHATSAPP_APP_TOKEN=your-app-token
+WHATSAPP_API_VERSION=v17.0
+VERIFY_TOKEN=your-verify-token
+
+# CORS Settings
+CORS_ORIGINS=["http://localhost:3000", "http://localhost:8000"]
+
+Configuration Class
+
+The application uses Pydantic Settings for configuration management:
+
+class Settings(BaseSettings):
+    # Application settings
+    APP_NAME: str = "AI UPSC Mentor"
+    DEBUG: bool = Field(default=False)
+    ENVIRONMENT: str = Field(default="development")
+    
+    # Database settings
+    DATABASE_URL: str = Field(default="postgresql://postgres:password@localhost:5432/upsc_mentor")
+    
+    # AI settings
+    LLM_MODEL: str = Field(default="qwen/qwen3-32b")
+    GROQ_API_KEY: str = Field(default="")
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+---
+
+9. DEPLOYMENT
+
+Docker Deployment
+
+Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+Docker Compose
+version: '3.9'
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_URL=postgresql+asyncpg://postgres:password@db:5432/mentor
+      - REDIS_URL=redis://redis:6379/0
+      - CHROMA_PATH=./data/chroma
+    depends_on:
+      - db
+      - redis
+      - chroma
+    volumes:
+      - ./backend:/app/backend
+      - ./data:/app/data
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mentor
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  chroma:
+    image: ghcr.io/chroma-core/chroma:latest
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./data/chroma:/chroma
+
+Production Deployment
+
+1. Cloud Provider Setup
+• AWS: EC2, RDS, ElastiCache
+• Azure: Virtual Machines, Azure Database, Redis Cache
+• GCP: Compute Engine, Cloud SQL, Memorystore
+
+2. Database Setup
+# Create database
+createdb upsc_mentor
+
+# Run migrations
+alembic upgrade head
+
+3. Environment Configuration
+# Set production environment variables
+export ENVIRONMENT=production
+export DEBUG=false
+export LOG_LEVEL=INFO
+
+4. SSL Certificate
+# Install certbot
+sudo apt install certbot
+
+# Generate certificate
+sudo certbot certonly --standalone -d yourdomain.com
+
+5. Reverse Proxy (Nginx)
+server {
+    listen 80;
+    server_name yourdomain.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name yourdomain.com;
+    
+    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+    
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+---
+
+10. DEVELOPMENT SETUP
+
+Prerequisites
+• Python 3.11+
+• PostgreSQL 15+
+• Redis 6+
+• Docker (optional)
+
+Local Development
+
+1. Clone Repository
+git clone <repository-url>
+cd Whatsapp_AI_tut
+
+2. Create Virtual Environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+3. Install Dependencies
+pip install -r requirements.txt
+
+4. Database Setup
+# Install PostgreSQL
+sudo apt install postgresql postgresql-contrib
+
+# Create database
+sudo -u postgres createdb upsc_mentor
+
+# Create user
+sudo -u postgres psql
+CREATE USER mentor_user WITH PASSWORD 'password';
+GRANT ALL PRIVILEGES ON DATABASE upsc_mentor TO mentor_user;
+
+5. Environment Configuration
+# Copy environment template
+cp .env.example .env
+
+# Edit configuration
+nano .env
+
+6. Run Database Migrations
+# Initialize Alembic (if not already done)
+alembic init alembic
+
+# Create migration
+alembic revision --autogenerate -m "Initial migration"
+
+# Apply migration
+alembic upgrade head
+
+7. Start Services
+# Start Redis
+redis-server
+
+# Start PostgreSQL
+sudo systemctl start postgresql
+
+# Start ChromaDB
+chroma run --host 0.0.0.0 --port 8001
+
+# Start FastAPI application
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+
+8. Verify Installation
+# Test API
+curl http://localhost:8000/health
+
+# Test WhatsApp webhook
+curl http://localhost:8000/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=your_token&hub.challenge=test
+
+Docker Development
+
+1. Start Development Environment
+docker-compose up -d
+
+2. View Logs
+docker-compose logs -f api
+
+3. Access Services
+• API: http://localhost:8000
+• PostgreSQL: localhost:5432
+• Redis: localhost:6379
+• ChromaDB: localhost:8001
+
+---
+
+11. TESTING
+
+Test Structure
+tests/
+├── unit/
+│   ├── test_agents.py
+│   ├── test_services.py
+│   └── test_models.py
+├── integration/
+│   ├── test_api.py
+│   ├── test_webhooks.py
+│   └── test_database.py
+└── e2e/
+    ├── test_whatsapp_flow.py
+    └── test_user_journey.py
+
+Running Tests
+
+Unit Tests
+pytest tests/unit/ -v
+
+Integration Tests
+pytest tests/integration/ -v
+
+End-to-End Tests
+pytest tests/e2e/ -v
+
+All Tests
+pytest tests/ -v --cov=backend
+
+Test Examples
+
+Unit Test Example
+import pytest
+from backend.services.tutor_agent import TutorAgent
+
+class TestTutorAgent:
+    def test_process_message(self):
+        agent = TutorAgent()
+        response = await agent.process_message("1234567890", "What is the capital of India?")
+        assert "New Delhi" in response
+
+Integration Test Example
+import pytest
+from fastapi.testclient import TestClient
+from backend.main import app
+
+client = TestClient(app)
+
+def test_tutor_endpoint():
+    response = client.get("/tutor/answer?query=What is the capital of India?")
+    assert response.status_code == 200
+    assert "answer" in response.json()
+
+---
+
+12. MONITORING & LOGGING
+
+Logging Configuration
+
+The application uses structured logging with different levels:
+
+import logging
+from backend.utils.logger import setup_logging
+
+# Setup logging
+setup_logging()
+
+# Usage in code
+logger = logging.getLogger(__name__)
+logger.info("Processing message", extra={"user_id": user_id, "intent": intent})
+
+Log Levels
+• DEBUG: Detailed information for debugging
+• INFO: General information about application flow
+• WARNING: Warning messages for potential issues
+• ERROR: Error messages for failed operations
+• CRITICAL: Critical errors that may cause application failure
+
+Monitoring Endpoints
+
+Health Check
+GET /health
+
+Metrics (Future Implementation)
+GET /metrics
+
+Log Analysis
+
+Application Logs
+# View application logs
+tail -f logs/app.log
+
+# Filter by level
+grep "ERROR" logs/app.log
+
+# Filter by user
+grep "user_id:1234567890" logs/app.log
+
+Database Monitoring
+-- Monitor active connections
+SELECT count(*) FROM pg_stat_activity;
+
+-- Monitor slow queries
+SELECT query, mean_time, calls 
+FROM pg_stat_statements 
+ORDER BY mean_time DESC 
+LIMIT 10;
+
+---
+
+13. SECURITY
+
+Authentication & Authorization
+
+Currently, the application uses WhatsApp phone numbers as user identifiers. Future security enhancements include:
+
+JWT Token Authentication
+from jose import JWTError, jwt
+from datetime import datetime, timedelta
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+API Key Authentication
+from fastapi import HTTPException, Depends
+from fastapi.security import HTTPBearer
+
+security = HTTPBearer()
+
+def verify_api_key(token: str = Depends(security)):
+    if token.credentials != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return token.credentials
+
+Data Protection
+
+Input Validation
+from pydantic import BaseModel, validator
+
+class UserMessage(BaseModel):
+    phone_number: str
+    message: str
+    
+    @validator('phone_number')
+    def validate_phone_number(cls, v):
+        if not re.match(r'^\d{10,15}$', v):
+            raise ValueError('Invalid phone number format')
+        return v
+
+SQL Injection Prevention
+# Use parameterized queries
+from sqlalchemy import text
+
+def get_user_by_phone(phone_number: str):
+    query = text("SELECT * FROM users WHERE phone_number = :phone")
+    result = session.execute(query, {"phone": phone_number})
+    return result.fetchone()
+
+Rate Limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.post("/whatsapp/webhook")
+@limiter.limit("10/minute")
+async def webhook_handler(request: Request):
+    # Webhook handler implementation
+
+WhatsApp Security
+
+Webhook Verification
+import hashlib
+import hmac
+
+def verify_whatsapp_signature(payload: bytes, signature: str) -> bool:
+    expected_signature = hmac.new(
+        VERIFY_TOKEN.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected_signature)
+
+Message Validation
+def validate_whatsapp_message(message_data: dict) -> bool:
+    required_fields = ["from", "text", "timestamp"]
+    return all(field in message_data for field in required_fields)
+
+---
+
+14. PERFORMANCE OPTIMIZATION
+
+Database Optimization
+
+Indexing
+-- Create indexes for frequently queried columns
+CREATE INDEX idx_users_phone_number ON "MentoraAI".users(phone_number);
+CREATE INDEX idx_study_sessions_user_id ON "MentoraAI".study_sessions(user_id);
+CREATE INDEX idx_quizzes_user_id ON "MentoraAI".quizzes(user_id);
+CREATE INDEX idx_progress_tracking_user_id ON "MentoraAI".progress_tracking(user_id);
+
+Query Optimization
+# Use eager loading for related data
+from sqlalchemy.orm import joinedload
+
+def get_user_with_sessions(user_id: str):
+    return session.query(User).options(
+        joinedload(User.study_sessions)
+    ).filter(User.id == user_id).first()
+
+Caching Strategy
+
+Redis Caching
+import redis
+import json
+
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
+
+def cache_user_data(user_id: str, data: dict, ttl: int = 3600):
+    redis_client.setex(f"user:{user_id}", ttl, json.dumps(data))
+
+def get_cached_user_data(user_id: str) -> dict:
+    cached_data = redis_client.get(f"user:{user_id}")
+    if cached_data:
+        return json.loads(cached_data)
+    return None
+
+Application-Level Caching
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
+def get_study_plan_template(duration_weeks: int, daily_hours: int):
+    # Expensive computation cached
+    return generate_plan_template(duration_weeks, daily_hours)
+
+API Optimization
+
+Response Compression
+from fastapi.middleware.gzip import GZipMiddleware
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+Async Operations
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+executor = ThreadPoolExecutor(max_workers=4)
+
+async def process_multiple_requests(requests: list):
+    tasks = [process_request(req) for req in requests]
+    return await asyncio.gather(*tasks)
+
+AI Service Optimization
+
+Response Caching
+def cache_ai_response(query: str, response: str, ttl: int = 3600):
+    cache_key = f"ai_response:{hash(query)}"
+    redis_client.setex(cache_key, ttl, response)
+
+def get_cached_ai_response(query: str) -> str:
+    cache_key = f"ai_response:{hash(query)}"
+    return redis_client.get(cache_key)
+
+Batch Processing
+async def process_batch_queries(queries: list):
+    # Process multiple queries in a single API call
+    batch_prompt = "\n\n".join([f"Q{i+1}: {q}" for i, q in enumerate(queries)])
+    response = await llm_service.generate_text(batch_prompt)
+    return parse_batch_response(response)
+
+---
+
+15. TROUBLESHOOTING
+
+Common Issues
+
+1. Database Connection Issues
+Problem: Cannot connect to PostgreSQL
+Solution:
+# Check PostgreSQL status
+sudo systemctl status postgresql
+
+# Check connection
+psql -h localhost -U postgres -d upsc_mentor
+
+# Check firewall
+sudo ufw status
+
+2. WhatsApp Webhook Issues
+Problem: Webhook not receiving messages
+Solution:
+# Verify webhook URL
+curl -X GET "https://your-domain.com/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=your_token&hub.challenge=test"
+
+# Check webhook logs
+tail -f logs/app.log | grep webhook
+
+# Verify SSL certificate
+openssl s_client -connect your-domain.com:443
+
+3. AI Service Errors
+Problem: Groq API errors
+Solution:
+# Check API key
+echo $GROQ_API_KEY
+
+# Test API connection
+curl -H "Authorization: Bearer $GROQ_API_KEY" https://api.groq.com/openai/v1/models
+
+# Check rate limits
+grep "rate limit" logs/app.log
+
+4. ChromaDB Issues
+Problem: Vector database not accessible
+Solution:
+# Check ChromaDB status
+curl http://localhost:8001/api/v1/heartbeat
+
+# Restart ChromaDB
+docker-compose restart chroma
+
+# Check disk space
+df -h
+
+Debugging Tools
+
+Application Debugging
+# Enable debug mode
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Add debug prints
+print(f"Processing message: {message}")
+print(f"Intent detected: {intent}")
+
+Database Debugging
+# Enable SQL logging
+import logging
+logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
+# Check query performance
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+
+@event.listens_for(Engine, "before_cursor_execute")
+def receive_before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    print(f"Executing: {statement}")
+
+Performance Profiling
+import cProfile
+import pstats
+
+def profile_function(func):
+    def wrapper(*args, **kwargs):
+        profiler = cProfile.Profile()
+        profiler.enable()
+        result = func(*args, **kwargs)
+        profiler.disable()
+        
+        stats = pstats.Stats(profiler)
+        stats.sort_stats('cumulative')
+        stats.print_stats(10)
+        
+        return result
+    return wrapper
+
+Error Codes
+
+HTTP Status Codes
+• 200: Success
+• 400: Bad Request
+• 401: Unauthorized
+• 403: Forbidden
+• 404: Not Found
+• 429: Too Many Requests
+• 500: Internal Server Error
+• 502: Bad Gateway
+• 503: Service Unavailable
+
+Application Error Codes
+• AI_SERVICE_ERROR: AI service unavailable
+• DATABASE_ERROR: Database connection failed
+• WHATSAPP_ERROR: WhatsApp API error
+• VALIDATION_ERROR: Input validation failed
+• RATE_LIMIT_ERROR: Rate limit exceeded
+
+Log Analysis
+
+Error Pattern Detection
+# Find common error patterns
+grep "ERROR" logs/app.log | cut -d' ' -f4- | sort | uniq -c | sort -nr
+
+# Monitor error rate
+grep "ERROR" logs/app.log | wc -l
+
+# Track specific user issues
+grep "user_id:1234567890" logs/app.log | grep "ERROR"
+
+Performance Monitoring
+# Monitor response times
+grep "Response time" logs/app.log | awk '{print $NF}' | sort -n
+
+# Track API usage
+grep "API call" logs/app.log | wc -l
+
+# Monitor memory usage
+ps aux | grep python
+
+---
+
+CONCLUSION
+
+This technical documentation provides a comprehensive overview of the WhatsApp AI Tutorial project. The application demonstrates a sophisticated multi-agent architecture for educational support, leveraging modern AI technologies and best practices in software development.
+
+Key Achievements
+• Scalable Architecture: Multi-agent system with clear separation of concerns
+• AI Integration: RAG-powered responses with multiple LLM providers
+• Real-time Communication: WhatsApp Business API integration
+• Data Management: Comprehensive database schema with PostgreSQL and ChromaDB
+• Production Ready: Docker deployment with monitoring and security features
+
+Future Enhancements
+• Authentication System: JWT-based user authentication
+• Advanced Analytics: Machine learning-powered insights
+• Multi-language Support: Support for regional languages
+• Mobile App: Native mobile application
+• Admin Dashboard: Web-based administration interface
+
+Support and Maintenance
+• Documentation: Keep this documentation updated with changes
+• Testing: Maintain comprehensive test coverage
+• Monitoring: Implement production monitoring and alerting
+• Security: Regular security audits and updates
+• Performance: Continuous optimization and scaling
+
+For additional support or questions, please refer to the project repository or contact the development team.

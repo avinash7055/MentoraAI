@@ -47,13 +47,11 @@ class Settings(BaseSettings):
     # API settings
     API_V1_STR: str = Field(default="/api/v1")
 
-    # WhatsApp settings
-    WHATSAPP_TOKEN: str = Field(default="")
-    WHATSAPP_PHONE_NUMBER_ID: str = Field(default="")
-    WHATSAPP_PHONE_ID: str = Field(default="")
-    WHATSAPP_APP_TOKEN: str = Field(default="")
-    WHATSAPP_API_VERSION: str = Field(default="v17.0")
-    VERIFY_TOKEN: str = Field(default="")
+    # Telegram settings
+    TELEGRAM_BOT_TOKEN: str = Field(default="")
+    TELEGRAM_WEBHOOK_SECRET: str = Field(default="")
+    TELEGRAM_ADMIN_IDS: List[int] = Field(default_factory=list)
+    TELEGRAM_WEBHOOK_URL: str = Field(default="")
 
     def get_database_url(self) -> str:
         """Return the appropriate database URL based on environment."""

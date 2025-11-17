@@ -6,6 +6,7 @@ import logging
 from typing import Dict, Any, Optional
 
 from .base_agent import BaseAgent
+from .llm_service import LLMService
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -14,52 +15,55 @@ class TutorAgent(BaseAgent):
     """Agent responsible for answering educational questions about UPSC topics."""
     
     def __init__(self, rag_service=None):
-        """Initialize the TutorAgent with an optional RAG service."""
-        super().__init__("TutorAgent")
-        self.rag = rag_service
+        """Initialize the TutorAgent with RAG service.
         
-        # Initialize RAG service if not provided
-        if self.rag is None:
-            try:
+        Args:
+            rag_service: An instance of RAGService. If not provided, one will be created.
+        """
+        super().__init__("TutorAgent")
+        
+        try:
+            # Initialize RAG service for educational queries
+            if rag_service is None:
                 from .rag_service import RAGService
-                self.rag = RAGService()
-            except ImportError as e:
-                logger.warning("RAGService not available. Running in limited mode.")
-                self.rag = None
-    
+                rag_service = RAGService()
+            self.rag = rag_service
+            
+            logger.info("TutorAgent initialized successfully with RAG service")
+            
+        except Exception as e:
+            logger.error("Failed to initialize TutorAgent", exc_info=True)
+            raise RuntimeError(f"Failed to initialize TutorAgent: {str(e)}") from e
+        
     async def process_message(self, phone_number: str, message: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
-        Process an educational query and return a detailed response.
+        Process an educational query and return a response using RAG.
         
         Args:
             phone_number: The user's phone number
-            message: The user's question or query
+            message: The user's message (should be an educational query)
             context: Additional context (e.g., conversation history)
             
         Returns:
-            A detailed response to the user's query
+            A response to the user's educational query
         """
         try:
-            logger.info(f"Processing tutor query from {phone_number}: {message}")
+            logger.info(f"Processing educational query from {phone_number}: {message}")
             
-            # If RAG service is not available, return a fallback response
-            if self.rag is None:
-                return (
-                    "I'm currently unable to access my knowledge base. "
-                    "Please try again later or contact support if the issue persists."
-                )
+            # Handle empty message
+            if not message.strip():
+                return "I didn't catch that. Could you please rephrase your question?"
             
-            # Get response from RAG service
+            # Process the query using RAG
             response = self.rag.retrieve_and_generate(message)
-            
-            # Format the response nicely
-            formatted_response = self._format_response(response, message)
-            
-            return formatted_response
+            return self._format_response(response, message)
             
         except Exception as e:
             logger.error(f"Error in TutorAgent: {str(e)}", exc_info=True)
-            return await self.handle_error(e)
+            return (
+                "I'm sorry, I encountered an error while processing your request. "
+                "Please try again later or contact support if the issue persists."
+            )
     
     def _format_response(self, response: Any, original_query: str) -> str:
         """Format the RAG response into a user-friendly message.
