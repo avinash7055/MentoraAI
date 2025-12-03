@@ -17,6 +17,8 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default='now()')
     last_active = Column(DateTime(timezone=True))
     preferences = Column(JSON)
+    onboarding_step = Column(String(50))  # Track current onboarding step: 'exam_type', 'study_hours', 'subjects', 'completed'
+    onboarding_data = Column(JSON)  # Store onboarding responses
 
 class StudyPlan(Base):
     __tablename__ = "study_plans"
@@ -68,7 +70,7 @@ class QuizQuestion(Base):
     quiz_id = Column(UUID(as_uuid=True), ForeignKey('MentoraAI.quizzes.id'), nullable=False)
     question_text = Column(Text, nullable=False)
     options = Column(JSON, nullable=False)
-    correct_answer = Column(Integer, nullable=False)
+    correct_answer = Column(String(1), nullable=False)
     explanation = Column(Text)
 
 class UserResponse(Base):
@@ -79,7 +81,7 @@ class UserResponse(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey('MentoraAI.users.id'), nullable=False)
     question_id = Column(UUID(as_uuid=True), ForeignKey('MentoraAI.quiz_questions.id'), nullable=False)
     quiz_id = Column(UUID(as_uuid=True), ForeignKey('MentoraAI.quizzes.id'))
-    selected_option = Column(Integer, nullable=False)
+    selected_option = Column(String(1), nullable=False)
     is_correct = Column(Boolean, nullable=False)
     answered_at = Column(DateTime(timezone=True), server_default='now()')
 

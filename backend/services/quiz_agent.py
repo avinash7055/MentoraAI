@@ -12,6 +12,10 @@ from datetime import datetime
 from .base_agent import BaseAgent
 from .rag_service import RAGService
 from .llm_service import LLMService
+from ..db.database import SessionLocal
+from ..db.models import User, Quiz, QuizQuestion, UserResponse
+from sqlalchemy.orm import Session
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -79,16 +83,66 @@ class QuizAgent(BaseAgent):
             if not questions:
                 return "I couldn't generate any questions on that topic. Please try another topic or ask me something else!"
             
-            # Store the quiz state
-            self.active_quizzes[user_id] = {
-                "questions": questions,
-                "current_question": 0,
-                "score": 0,
-                "responses": [],
-                "topic": topic,
-                "difficulty": difficulty,
-                "start_time": datetime.utcnow().isoformat()
-            }
+            # Persist to Database
+            db: Session = SessionLocal()
+            try:
+                # Ensure user exists
+                user = self._get_or_create_user(db, user_id)
+                
+                # Create Quiz record
+                new_quiz = Quiz(
+                    user_id=user.id,
+                    topic=topic,
+                    difficulty=difficulty,
+                    score=0,
+                    completed=False
+                )
+                db.add(new_quiz)
+                db.flush()  # Get ID
+                
+                # Create Question records
+                db_questions = []
+                for q in questions:
+                    db_q = QuizQuestion(
+                        quiz_id=new_quiz.id,
+                        question_text=q["question"],
+                        options=q["options"],
+                        correct_answer=q["answer"]
+                    )
+                    db.add(db_q)
+                    db_questions.append(db_q)
+                
+                db.commit()
+                quiz_id = str(new_quiz.id)
+                
+                # Store the quiz state in memory with DB IDs
+                self.active_quizzes[user_id] = {
+                    "quiz_id": quiz_id,
+                    "questions": questions,
+                    "question_ids": [str(q.id) for q in db_questions],
+                    "current_question": 0,
+                    "score": 0,
+                    "responses": [],
+                    "topic": topic,
+                    "difficulty": difficulty,
+                    "start_time": datetime.utcnow().isoformat()
+                }
+                
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Database error starting quiz: {str(e)}", exc_info=True)
+                # Fallback to memory-only if DB fails
+                self.active_quizzes[user_id] = {
+                    "questions": questions,
+                    "current_question": 0,
+                    "score": 0,
+                    "responses": [],
+                    "topic": topic,
+                    "difficulty": difficulty,
+                    "start_time": datetime.utcnow().isoformat()
+                }
+            finally:
+                db.close()
             
             # Return the first question
             return self._format_question(user_id)
@@ -96,6 +150,16 @@ class QuizAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Error starting quiz session: {str(e)}", exc_info=True)
             return "I had trouble creating your quiz. Please try again with a different topic."
+
+    def _get_or_create_user(self, db: Session, phone_number: str) -> User:
+        """Get existing user or create a new one."""
+        user = db.query(User).filter(User.phone_number == phone_number).first()
+        if not user:
+            user = User(phone_number=phone_number)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
 
     async def generate_quiz(self, topic: str, num_questions: int = 5, difficulty: str = "medium") -> List[Dict]:
         """
@@ -325,6 +389,37 @@ Return ONLY the JSON array. No explanations, no markdown, no other text."""
         # Update quiz state
         if is_correct:
             quiz["score"] += 1
+            
+        # Persist response to DB
+        if "quiz_id" in quiz and "question_ids" in quiz:
+            db: Session = SessionLocal()
+            try:
+                user = self._get_or_create_user(db, user_id)
+                q_id = quiz["question_ids"][current_q]
+                
+                response = UserResponse(
+                    user_id=user.id,
+                    quiz_id=uuid.UUID(quiz["quiz_id"]),
+                    question_id=uuid.UUID(q_id),
+                    selected_option=answer,
+                    is_correct=is_correct
+                )
+                db.add(response)
+                
+                # Update quiz score
+                quiz_record = db.query(Quiz).filter(Quiz.id == uuid.UUID(quiz["quiz_id"])).first()
+                if quiz_record:
+                    quiz_record.score = quiz["score"]
+                    if quiz["current_question"] + 1 >= len(questions):
+                        quiz_record.completed = True
+                        quiz_record.completed_at = datetime.utcnow()
+                
+                db.commit()
+            except Exception as e:
+                logger.error(f"Database error saving response: {str(e)}", exc_info=True)
+            finally:
+                db.close()
+
         quiz["responses"].append({
             "question_idx": current_q,
             "answer": answer,

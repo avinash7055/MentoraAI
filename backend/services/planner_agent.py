@@ -9,6 +9,11 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from .base_agent import BaseAgent
 from ..config import settings
+from ..db.database import SessionLocal
+from ..db.models import User, StudyPlan, Quiz
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +23,6 @@ class PlannerAgent(BaseAgent):
     def __init__(self):
         """Initialize the PlannerAgent with default settings."""
         super().__init__("PlannerAgent")
-        self.study_plans = {}  # In-memory storage (replace with database in production)
         self.default_study_hours = 3  # Default study hours per day
         
         # Sample UPSC syllabus topics (simplified)
@@ -79,32 +83,283 @@ class PlannerAgent(BaseAgent):
             return await self.handle_error(e)
     
     async def _create_study_plan(self, phone_number: str, message: str) -> str:
-        """Create a new study plan based on user preferences."""
+        """Create a new study plan based on user preferences with interactive onboarding for new users."""
+        db: Session = SessionLocal()
+        try:
+            # Ensure user exists
+            user = self._get_or_create_user(db, phone_number)
+            
+            # Check if user has any existing plans (to determine if they're new)
+            existing_plans = db.query(StudyPlan).filter(StudyPlan.user_id == user.id).count()
+            
+            # If new user and not in onboarding, start onboarding
+            if existing_plans == 0 and not user.onboarding_step:
+                return await self._start_onboarding(db, user)
+            
+            # If user is in onboarding, process their response
+            if user.onboarding_step and user.onboarding_step != 'completed':
+                return await self._process_onboarding_response(db, user, message)
+            
+            # Otherwise, create plan normally (existing user or onboarding completed)
+            return await self._create_plan_from_preferences(db, user, message)
+            
+        except Exception as e:
+            logger.error(f"Error creating study plan: {str(e)}", exc_info=True)
+            return "I couldn't create your study plan. Please try again with your preferences."
+        finally:
+            db.close()
+    
+    async def _start_onboarding(self, db: Session, user: User) -> str:
+        """Start the interactive onboarding flow for new users."""
+        user.onboarding_step = 'exam_type'
+        user.onboarding_data = {}
+        db.commit()
+        
+        return """👋 *Welcome to MentoraAI!* 🎓
+
+I see this is your first study plan. Let me help you get started with a personalized plan!
+
+*Question 1 of 3:*
+
+1️⃣ Which exam are you preparing for?
+   A) Prelims 2025
+   B) Mains 2025
+   C) Both Prelims & Mains
+
+Reply with *1A*, *1B*, or *1C*"""
+    
+    async def _process_onboarding_response(self, db: Session, user: User, message: str) -> str:
+        """Process user responses during onboarding."""
+        message = message.strip().upper()
+        
+        # Initialize onboarding_data if None
+        if user.onboarding_data is None:
+            user.onboarding_data = {}
+        
+        if user.onboarding_step == 'exam_type':
+            # Parse exam type response
+            if '1A' in message or 'PRELIMS' in message:
+                user.onboarding_data['exam_type'] = 'Prelims 2025'
+            elif '1B' in message or 'MAINS' in message:
+                user.onboarding_data['exam_type'] = 'Mains 2025'
+            elif '1C' in message or 'BOTH' in message:
+                user.onboarding_data['exam_type'] = 'Both Prelims & Mains'
+            else:
+                return "❌ Invalid response. Please reply with *1A*, *1B*, or *1C*"
+            
+            # Move to next step
+            user.onboarding_step = 'study_hours'
+            db.commit()
+            
+            return """✅ Great choice!
+
+*Question 2 of 3:*
+
+2️⃣ How many hours can you study daily?
+   A) 2-3 hours
+   B) 4-5 hours
+   C) 6+ hours
+
+Reply with *2A*, *2B*, or *2C*"""
+        
+        elif user.onboarding_step == 'study_hours':
+            # Parse study hours response
+            if '2A' in message:
+                user.onboarding_data['daily_hours'] = 3
+            elif '2B' in message:
+                user.onboarding_data['daily_hours'] = 5
+            elif '2C' in message:
+                user.onboarding_data['daily_hours'] = 7
+            else:
+                return "❌ Invalid response. Please reply with *2A*, *2B*, or *2C*"
+            
+            # Move to next step
+            user.onboarding_step = 'subjects'
+            db.commit()
+            
+            return """✅ Perfect!
+
+*Question 3 of 3:*
+
+3️⃣ Which subjects do you want to focus on?
+   A) All subjects (balanced approach)
+   B) Specific subjects (I'll ask which ones)
+   C) Let the AI decide based on my quiz performance
+
+Reply with *3A*, *3B*, or *3C*"""
+        
+        elif user.onboarding_step == 'subjects':
+            # Parse subjects response
+            if '3A' in message:
+                user.onboarding_data['focus_preference'] = 'all_subjects'
+                user.onboarding_data['focus_areas'] = ['General Studies', 'Current Affairs', 'Optional Subject']
+            elif '3B' in message:
+                user.onboarding_step = 'specific_subjects'
+                db.commit()
+                return """✅ Got it!
+
+Please tell me which subjects you want to focus on. For example:
+- "Polity, History, Geography"
+- "Economics and Environment"
+- "All GS papers"
+
+Type your subjects:"""
+            elif '3C' in message:
+                user.onboarding_data['focus_preference'] = 'ai_decide'
+                user.onboarding_data['focus_areas'] = ['General Studies']  # Will adapt based on quiz performance
+            else:
+                return "❌ Invalid response. Please reply with *3A*, *3B*, or *3C*"
+            
+            # Complete onboarding and generate plan
+            user.onboarding_step = 'completed'
+            db.commit()
+            
+            return await self._generate_onboarding_plan(db, user)
+        
+        elif user.onboarding_step == 'specific_subjects':
+            # Parse specific subjects from free text
+            subjects = self._parse_subjects_from_text(message)
+            user.onboarding_data['focus_preference'] = 'specific_subjects'
+            user.onboarding_data['focus_areas'] = subjects
+            
+            # Complete onboarding and generate plan
+            user.onboarding_step = 'completed'
+            db.commit()
+            
+            return await self._generate_onboarding_plan(db, user)
+        
+        return "Something went wrong. Please try again."
+    
+    def _parse_subjects_from_text(self, text: str) -> List[str]:
+        """Extract subject names from user's free text."""
+        text = text.lower()
+        
+        # Common UPSC subjects
+        subject_keywords = {
+            'polity': 'Indian Polity',
+            'history': 'Indian History',
+            'geography': 'Geography',
+            'economics': 'Economics',
+            'economy': 'Economics',
+            'environment': 'Environment & Ecology',
+            'ecology': 'Environment & Ecology',
+            'science': 'General Science',
+            'current affairs': 'Current Affairs',
+            'csat': 'CSAT',
+            'ethics': 'Ethics & Integrity',
+            'international relations': 'International Relations',
+            'ir': 'International Relations',
+            'governance': 'Governance'
+        }
+        
+        found_subjects = []
+        for keyword, subject in subject_keywords.items():
+            if keyword in text and subject not in found_subjects:
+                found_subjects.append(subject)
+        
+        # If no subjects found, default to General Studies
+        return found_subjects if found_subjects else ['General Studies']
+    
+    async def _generate_onboarding_plan(self, db: Session, user: User) -> str:
+        """Generate study plan after onboarding is complete."""
+        # Build preferences from onboarding data
+        preferences = {
+            'duration_weeks': 12,  # Default 12 weeks
+            'daily_hours': user.onboarding_data.get('daily_hours', 3),
+            'focus_areas': user.onboarding_data.get('focus_areas', ['General Studies']),
+            'exam_type': user.onboarding_data.get('exam_type', 'Both'),
+            'start_date': datetime.now().date().isoformat()
+        }
+        
+        # Generate study plan
+        study_plan_data = self._generate_study_plan(preferences)
+        
+        # Create new StudyPlan record
+        new_plan = StudyPlan(
+            user_id=user.id,
+            title=f"Study Plan - {datetime.now().strftime('%Y-%m-%d')}",
+            description=json.dumps(study_plan_data),
+            start_date=datetime.fromisoformat(study_plan_data["start_date"]),
+            end_date=datetime.fromisoformat(study_plan_data["end_date"]),
+            status='active'
+        )
+        db.add(new_plan)
+        db.commit()
+        
+        # Format the response
+        response = "🎉 *Your Personalized Study Plan is Ready!* 🎉\n\n"
+        response += f"🎯 *Exam Target:* {preferences['exam_type']}\n"
+        response += f"📅 *Duration:* {preferences['duration_weeks']} weeks\n"
+        response += f"⏰ *Daily Study Time:* {preferences['daily_hours']} hours\n"
+        response += f"📚 *Focus Areas:* {', '.join(preferences['focus_areas'])}\n\n"
+        
+        response += "*Here's your study plan for Week 1:*\n\n"
+        
+        # Add first week's schedule
+        for day, topics in study_plan_data["weekly_schedule"][0].items():
+            response += f"*{day}:* {', '.join(topics[:2]) if topics else 'Rest'}\n"
+        
+        response += "\n💡 *Pro Tips:*\n"
+        response += "• Type 'view plan' to see your full schedule\n"
+        response += "• Take quizzes to help me identify your weak areas\n"
+        response += "• I'll automatically adjust your plan based on your performance!\n\n"
+        response += "Ready to start? Let's ace UPSC together! 💪"
+        
+        return response
+    
+    async def _create_plan_from_preferences(self, db: Session, user: User, message: str) -> str:
+        """Create plan for existing users or after onboarding."""
+        db: Session = SessionLocal()
         try:
             # Parse user preferences from message
             preferences = self._parse_preferences(message)
             
-            # Generate study plan
-            study_plan = self._generate_study_plan(preferences)
+            # Ensure user exists
+            user = self._get_or_create_user(db, phone_number)
             
-            # Store the plan
-            self.study_plans[phone_number] = {
-                "created_at": datetime.now().isoformat(),
-                "preferences": preferences,
-                "plan": study_plan,
-                "progress": {},
-                "last_updated": datetime.now().isoformat()
-            }
+            # Check for weak areas from Quizzes
+            weak_areas = self._get_weak_areas(db, user.id)
+            if weak_areas:
+                preferences["weak_areas"] = weak_areas
+                # Add weak areas to focus areas if not present
+                for area in weak_areas:
+                    if area not in preferences["focus_areas"]:
+                        preferences["focus_areas"].append(area)
+            
+            # Generate study plan
+            study_plan_data = self._generate_study_plan(preferences)
+            
+            # Deactivate old plans
+            db.query(StudyPlan).filter(
+                StudyPlan.user_id == user.id, 
+                StudyPlan.status == 'active'
+            ).update({"status": "archived"})
+            
+            # Create new StudyPlan record
+            new_plan = StudyPlan(
+                user_id=user.id,
+                title=f"Study Plan - {datetime.now().strftime('%Y-%m-%d')}",
+                description=json.dumps(study_plan_data), # Store full JSON in description for now or create a separate model
+                start_date=datetime.fromisoformat(study_plan_data["start_date"]),
+                end_date=datetime.fromisoformat(study_plan_data["end_date"]),
+                status='active'
+            )
+            db.add(new_plan)
+            db.commit()
             
             # Format the response
             response = "📚 *Your Study Plan Has Been Created!* 📚\n\n"
             response += f"📅 *Duration:* {preferences['duration_weeks']} weeks\n"
             response += f"⏰ *Daily Study Time:* {preferences['daily_hours']} hours\n"
-            response += f"🎯 *Focus Areas:* {', '.join(preferences['focus_areas'])}\n\n"
-            response += "Here's your study plan for the first week:\n\n"
+            response += f"🎯 *Focus Areas:* {', '.join(preferences['focus_areas'])}\n"
+            
+            if weak_areas:
+                response += f"⚠️ *Detected Weak Areas:* {', '.join(weak_areas)} (Prioritized in plan)\n"
+            
+            response += "\nHere's your study plan for the first week:\n\n"
             
             # Add first week's schedule
-            for day, topics in study_plan["weekly_schedule"][0].items():
+            for day, topics in study_plan_data["weekly_schedule"][0].items():
                 response += f"*{day}:* {', '.join(topics[:2])}\n"
             
             response += "\nType 'view plan' to see your full plan or 'progress' to update your progress."
@@ -114,36 +369,83 @@ class PlannerAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Error creating study plan: {str(e)}", exc_info=True)
             return "I couldn't create your study plan. Please try again with your preferences."
+        finally:
+            db.close()
+
+    def _get_or_create_user(self, db: Session, phone_number: str) -> User:
+        """Get existing user or create a new one."""
+        user = db.query(User).filter(User.phone_number == phone_number).first()
+        if not user:
+            user = User(phone_number=phone_number)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
+
+    def _get_weak_areas(self, db: Session, user_id: uuid.UUID) -> List[str]:
+        """Identify weak areas based on quiz scores (< 50%)."""
+        try:
+            # Find topics with average score < 50%
+            weak_topics = db.query(Quiz.topic).\
+                filter(Quiz.user_id == user_id).\
+                group_by(Quiz.topic).\
+                having(func.avg(Quiz.score) < 3).all() # Assuming score is out of 5
+            
+            return [t[0] for t in weak_topics]
+        except Exception:
+            return []
     
     async def _view_study_plan(self, phone_number: str) -> str:
         """View the user's current study plan."""
+        db: Session = SessionLocal()
         try:
-            plan = self.study_plans.get(phone_number)
-            if not plan:
+            user = db.query(User).filter(User.phone_number == phone_number).first()
+            if not user:
+                return "You don't have an active study plan yet."
+            
+            plan_record = db.query(StudyPlan).filter(
+                StudyPlan.user_id == user.id,
+                StudyPlan.status == 'active'
+            ).first()
+            
+            if not plan_record:
                 return (
                     "You don't have an active study plan yet. "
                     "Would you like me to create one for you? "
                     "Just tell me your available study time and preferences."
                 )
             
-            prefs = plan["preferences"]
+            # Load plan data from JSON description
+            plan_data = json.loads(plan_record.description)
+            # We don't have preferences stored separately in this simple model, 
+            # so we might need to extract them or store them better.
+            # For now, assume defaults or extract from plan_data if possible.
+            duration_weeks = len(plan_data.get("weekly_schedule", []))
             
             response = (
                 "📋 *Your Study Plan* 📋\n\n"
-                f"📅 *Duration:* {prefs['duration_weeks']} weeks\n"
-                f"⏰ *Daily Study Time:* {prefs['daily_hours']} hours\n"
-                f"🎯 *Focus Areas:* {', '.join(prefs['focus_areas'])}\n\n"
+                f"📅 *Duration:* {duration_weeks} weeks\n"
+                f"📅 *Start Date:* {plan_record.start_date}\n"
+                f"📅 *End Date:* {plan_record.end_date}\n\n"
                 "*This Week's Schedule:*\n"
             )
             
             # Get current week (0-indexed)
-            current_week = self._get_current_week(plan)
+            # We need to recalculate current week based on start_date
+            start_date = plan_record.start_date
+            if isinstance(start_date, str):
+                 start_date = datetime.fromisoformat(start_date).date()
+            
+            days_passed = (datetime.now().date() - start_date).days
+            current_week = max(0, days_passed // 7)
+            current_week = min(current_week, duration_weeks - 1)
             
             # Add current week's schedule
-            for day, topics in plan["plan"]["weekly_schedule"][current_week].items():
-                response += f"\n*{day}:*\n"
-                for i, topic in enumerate(topics, 1):
-                    response += f"  {i}. {topic}\n"
+            if current_week < len(plan_data["weekly_schedule"]):
+                for day, topics in plan_data["weekly_schedule"][current_week].items():
+                    response += f"\n*{day}:*\n"
+                    for i, topic in enumerate(topics, 1):
+                        response += f"  {i}. {topic}\n"
             
             response += "\nType 'progress' to update your progress or 'update plan' to make changes."
             
@@ -152,6 +454,8 @@ class PlannerAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Error viewing study plan: {str(e)}", exc_info=True)
             return "I couldn't retrieve your study plan. Please try again later."
+        finally:
+            db.close()
     
     async def _update_study_plan(self, phone_number: str, message: str) -> str:
         """Update the user's study plan based on new preferences."""

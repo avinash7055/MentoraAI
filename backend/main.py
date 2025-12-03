@@ -13,6 +13,10 @@ from backend.utils.logger import setup_logging
 # Set up logging
 setup_logging()
 
+# Initialize database tables
+from backend.db.database import create_tables
+create_tables()
+
 app = FastAPI(
     title="AI UPSC Mentor",
     description="Multi-platform AI tutoring system for UPSC aspirants with support for Telegram and WhatsApp",

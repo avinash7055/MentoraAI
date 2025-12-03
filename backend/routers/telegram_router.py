@@ -89,6 +89,8 @@ async def process_message(message: Dict[str, Any]):
             await handle_document_message(chat_id, message)
         elif "photo" in message:
             await handle_photo_message(chat_id, message)
+        elif "voice" in message:
+            await handle_voice_message(chat_id, message)
         else:
             logger.info(f"Unhandled message type: {message.keys()}")
             
@@ -102,7 +104,30 @@ async def handle_text_message(chat_id: int, message: Dict[str, Any]):
         text = message["text"]
         message_id = message["message_id"]
         
-        # Process the message using the message processor
+        # Check if user is in onboarding
+        from ..db.database import SessionLocal
+        from ..db.models import User
+        from ..services.onboarding_service import onboarding_service
+        
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.phone_number == str(chat_id)).first()
+            
+            # If user is in onboarding, route to onboarding service
+            if user and user.onboarding_step and user.onboarding_step != 'completed':
+                response_text = await onboarding_service.process_onboarding_message(db, user, text)
+                
+                if response_text:
+                    await telegram_service.send_message(
+                        chat_id=chat_id,
+                        text=response_text,
+                        parse_mode="Markdown"
+                    )
+                    return
+        finally:
+            db.close()
+        
+        # Process the message using the message processor (normal flow)
         response = await message_processor.process_message(
             user_id=str(chat_id),
             message=text,
@@ -198,6 +223,36 @@ async def handle_photo_message(chat_id: int, message: Dict[str, Any]):
         logger.error(f"Error in handle_photo_message: {str(e)}", exc_info=True)
         await send_error_message(chat_id, "Sorry, I couldn't process your photo.")
 
+async def handle_voice_message(chat_id: int, message: Dict[str, Any]):
+    """Handle incoming voice messages."""
+    try:
+        voice = message["voice"]
+        file_id = voice["file_id"]
+        
+        # Get file info
+        file_info = await telegram_service._make_request(
+            "GET",
+            f"{telegram_service.base_url}/getFile?file_id={file_id}",
+            {}
+        )
+        
+        if not file_info.get("ok"):
+            raise Exception("Failed to get file info from Telegram")
+            
+        file_path = file_info["result"]["file_path"]
+        file_url = f"https://api.telegram.org/file/bot{settings.TELEGRAM_BOT_TOKEN}/{file_path}"
+        
+        # TODO: Integrate Whisper for transcription
+        # For now, just acknowledge
+        await telegram_service.send_message(
+            chat_id=chat_id,
+            text="🎤 I received your voice message! Voice transcription is coming soon. For now, please type your query."
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in handle_voice_message: {str(e)}", exc_info=True)
+        await send_error_message(chat_id, "Sorry, I couldn't process your voice message.")
+
 async def handle_command(message: Dict[str, Any]):
     """Handle bot commands."""
     try:
@@ -219,28 +274,70 @@ async def handle_command(message: Dict[str, Any]):
         await send_error_message(chat_id, "Sorry, I couldn't process your command.")
 
 async def handle_start_command(chat_id: int):
-    """Handle the /start command."""
-    welcome_message = """
-👋 *Welcome to UPSC Mentor Bot!* \U0001F4DA
+    """Handle the /start command with onboarding for new users."""
+    from ..db.database import SessionLocal
+    from ..db.models import User
+    
+    db = SessionLocal()
+    try:
+        # Check if user exists
+        user = db.query(User).filter(User.phone_number == str(chat_id)).first()
+        
+        if not user:
+            # New user - create and start onboarding
+            user = User(
+                phone_number=str(chat_id),
+                onboarding_step='name',
+                onboarding_data={}
+            )
+            db.add(user)
+            db.commit()
+            
+            welcome_message = """👋 *Welcome to MentoraAI!* 🎓
+
+Your personal AI mentor for UPSC preparation!
+
+Before we begin, let me get to know you better so I can personalize your learning experience.
+
+*Question 1 of 5:*
+
+What's your name? 😊
+
+(Just type your name, e.g., "Rahul Kumar")"""
+            
+        elif user.onboarding_step and user.onboarding_step != 'completed':
+            # User is in the middle of onboarding
+            welcome_message = """👋 *Welcome back!*
+
+Let's continue where we left off with your profile setup.
+
+Please answer the current question to proceed."""
+            
+        else:
+            # Existing user - show welcome back message
+            name = user.name or "there"
+            welcome_message = f"""👋 *Welcome back, {name}!* 📚
 
 I'm here to help you with your UPSC preparation. Here's what I can do:
 
-• Answer your UPSC-related questions
-• Provide study materials and resources
-• Help you with current affairs
-• Give you practice questions
-• And much more!
+• 🧠 *AI Tutor*: Ask any UPSC question
+• 📝 *Quiz Mode*: Test your knowledge
+• 📅 *Study Planner*: Create personalized study plans
+• 📊 *Progress Tracker*: Track your performance
+• 📰 *Current Affairs*: Stay updated
+• 📄 *Document Analysis*: Upload PDFs for summaries
 
-Type /help to see all available commands.
+Type /help to see all commands or just start asking questions!
 
-*Let's ace UPSC together!* \U0001F4AA
-    """.strip()
-    
-    await telegram_service.send_message(
-        chat_id=chat_id,
-        text=welcome_message,
-        parse_mode="Markdown"
-    )
+*Let's ace UPSC together!* 💪"""
+        
+        await telegram_service.send_message(
+            chat_id=chat_id,
+            text=welcome_message,
+            parse_mode="Markdown"
+        )
+    finally:
+        db.close()
 
 async def handle_help_command(chat_id: int):
     """Handle the /help command."""
@@ -251,10 +348,13 @@ async def handle_help_command(chat_id: int):
 /help - Show this help message
 
 *Features:*
-• Ask me any UPSC-related questions
-• Send me study materials to save
-• Get daily current affairs updates
-• Practice with previous year questions
+• 🧠 *AI Tutor*: Ask any UPSC question
+• 📝 *Quiz Mode*: Type '/quiz history' to practice
+• 📅 *Study Planner*: Type 'Create a study plan'
+• 📊 *Progress Tracker*: Type 'Show my progress'
+• 📰 *Current Affairs*: Get daily updates
+• 📄 *Document Analysis*: Upload PDFs for summary
+• 🎤 *Voice Mode*: Send a voice note
 
 Just type your question or upload a document to get started!
     """.strip()

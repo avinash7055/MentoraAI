@@ -84,3 +84,18 @@ class LLMService:
         except Exception as e:
             logger.error(f"API request failed: {str(e)}")
             return f"Error: {str(e)}"
+    async def get_response(self, prompt: str, system_prompt: str = "You are a helpful AI assistant.") -> str:
+        """
+        Get a response from the LLM (Async wrapper).
+        """
+        if not self.client:
+            return "Error: Groq API key not configured."
+            
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        
+        # Since Groq client is synchronous, we can just call it directly.
+        # In a high-load production app, we'd run this in a thread pool.
+        return self.generate_chat(messages)

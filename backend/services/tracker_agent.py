@@ -9,6 +9,11 @@ import json
 
 from .base_agent import BaseAgent
 from ..config import settings
+from ..db.database import SessionLocal
+from ..db.models import User, StudySession, ProgressTracking
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +23,6 @@ class TrackerAgent(BaseAgent):
     def __init__(self):
         """Initialize the TrackerAgent with default settings."""
         super().__init__("TrackerAgent")
-        self.study_sessions = {}  # In-memory storage (replace with database in production)
-        self.performance_metrics = {}
         
         # Default tracking categories
         self.categories = {
@@ -63,24 +66,34 @@ class TrackerAgent(BaseAgent):
     
     async def _log_study_session(self, phone_number: str, message: str) -> str:
         """Log a new study session or update an existing one."""
+        db: Session = SessionLocal()
         try:
             # Parse study session details from message
             session_data = self._parse_session_data(message)
             
-            # Initialize user data if not exists
-            if phone_number not in self.study_sessions:
-                self.study_sessions[phone_number] = []
-                self.performance_metrics[phone_number] = self._get_default_metrics()
+            # Ensure user exists
+            user = self._get_or_create_user(db, phone_number)
             
             # Add timestamp if not provided
-            if "timestamp" not in session_data:
-                session_data["timestamp"] = datetime.now().isoformat()
+            timestamp = session_data.get("timestamp")
+            if not timestamp:
+                timestamp = datetime.now()
+            else:
+                timestamp = datetime.fromisoformat(timestamp)
             
-            # Store the session
-            self.study_sessions[phone_number].append(session_data)
-            
-            # Update performance metrics
-            self._update_metrics(phone_number, session_data)
+            # Create StudySession record
+            new_session = StudySession(
+                user_id=user.id,
+                subject=session_data.get("topic", "General"), # Default subject
+                topic=session_data.get("topic", "General Study"),
+                duration_minutes=session_data.get("duration", 0),
+                completed=True,
+                scheduled_for=timestamp,
+                completed_at=timestamp,
+                notes=session_data.get("notes", "")
+            )
+            db.add(new_session)
+            db.commit()
             
             # Generate confirmation message
             response = "✅ *Study Session Logged!*\n\n"
@@ -99,33 +112,50 @@ class TrackerAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Error logging study session: {str(e)}", exc_info=True)
             return "I couldn't log your study session. Please try again with the format: 'Studied [topic] for [duration] minutes'"
+        finally:
+            db.close()
+
+    def _get_or_create_user(self, db: Session, phone_number: str) -> User:
+        """Get existing user or create a new one."""
+        user = db.query(User).filter(User.phone_number == phone_number).first()
+        if not user:
+            user = User(phone_number=phone_number)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
     
     async def _view_progress(self, phone_number: str, message: str) -> str:
         """View the user's study progress and statistics."""
+        db: Session = SessionLocal()
         try:
-            if phone_number not in self.study_sessions or not self.study_sessions[phone_number]:
+            user = db.query(User).filter(User.phone_number == phone_number).first()
+            if not user:
                 return "You haven't logged any study sessions yet. Start by saying 'I studied [topic] for [duration] minutes'"
             
-            # Get user's metrics
-            metrics = self.performance_metrics.get(phone_number, self._get_default_metrics())
+            # Query sessions
+            sessions = db.query(StudySession).filter(StudySession.user_id == user.id).all()
+            
+            if not sessions:
+                return "You haven't logged any study sessions yet. Start by saying 'I studied [topic] for [duration] minutes'"
             
             # Calculate time-based statistics
             today = datetime.now().date()
             week_start = today - timedelta(days=today.weekday())
             
             daily_time = sum(
-                s.get("duration", 0) 
-                for s in self.study_sessions[phone_number] 
-                if datetime.fromisoformat(s["timestamp"]).date() == today
+                s.duration_minutes
+                for s in sessions
+                if s.completed_at.date() == today
             )
             
             weekly_time = sum(
-                s.get("duration", 0)
-                for s in self.study_sessions[phone_number]
-                if datetime.fromisoformat(s["timestamp"]).date() >= week_start
+                s.duration_minutes
+                for s in sessions
+                if s.completed_at.date() >= week_start
             )
             
-            total_time = sum(s.get("duration", 0) for s in self.study_sessions[phone_number])
+            total_time = sum(s.duration_minutes for s in sessions)
             
             # Generate progress report
             response = (
@@ -138,9 +168,12 @@ class TrackerAgent(BaseAgent):
             
             # Get recent topics
             recent_topics = {}
-            for session in reversed(self.study_sessions[phone_number][-10:]):  # Last 10 sessions
-                topic = session.get("topic", "Unknown Topic")
-                duration = session.get("duration", 0)
+            # Sort by date descending
+            sorted_sessions = sorted(sessions, key=lambda x: x.completed_at, reverse=True)
+            
+            for session in sorted_sessions[:10]:  # Last 10 sessions
+                topic = session.topic or "Unknown Topic"
+                duration = session.duration_minutes
                 if topic in recent_topics:
                     recent_topics[topic] += duration
                 else:
@@ -149,13 +182,6 @@ class TrackerAgent(BaseAgent):
             for topic, duration in list(recent_topics.items())[:5]:  # Top 5 recent topics
                 response += f"• {topic}: {duration} minutes\n"
             
-            # Add goal progress if any
-            if "goals" in metrics and metrics["goals"]:
-                response += "\n*🎯 Goals Progress:*\n"
-                for goal_name, goal in metrics["goals"].items():
-                    progress = min(goal.get("current", 0) / goal["target"] * 100, 100)
-                    response += f"• {goal_name}: {progress:.1f}% complete\n"
-            
             response += "\nType 'analytics' for detailed statistics or 'log' to add a new session."
             
             return response
@@ -163,20 +189,27 @@ class TrackerAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Error viewing progress: {str(e)}", exc_info=True)
             return "I couldn't retrieve your progress. Please try again later."
+        finally:
+            db.close()
     
     async def _get_analytics(self, phone_number: str) -> str:
         """Generate detailed analytics and insights from the user's study data."""
+        db: Session = SessionLocal()
         try:
-            if phone_number not in self.study_sessions or not self.study_sessions[phone_number]:
-                return "You haven't logged any study sessions yet. Start by saying 'I studied [topic] for [duration] minutes'"
+            user = db.query(User).filter(User.phone_number == phone_number).first()
+            if not user:
+                return "You haven't logged any study sessions yet."
             
-            metrics = self.performance_metrics.get(phone_number, self._get_default_metrics())
+            sessions = db.query(StudySession).filter(StudySession.user_id == user.id).all()
+            
+            if not sessions:
+                return "You haven't logged any study sessions yet."
             
             # Calculate time distribution by day of week
             day_distribution = {}
-            for session in self.study_sessions[phone_number]:
-                day = datetime.fromisoformat(session["timestamp"]).strftime("%A")
-                duration = session.get("duration", 0)
+            for session in sessions:
+                day = session.completed_at.strftime("%A")
+                duration = session.duration_minutes
                 if day in day_distribution:
                     day_distribution[day] += duration
                 else:
@@ -186,9 +219,9 @@ class TrackerAgent(BaseAgent):
             time_distribution = {"Morning (6AM-12PM)": 0, "Afternoon (12PM-5PM)": 0, 
                                "Evening (5PM-10PM)": 0, "Night (10PM-6AM)": 0}
             
-            for session in self.study_sessions[phone_number]:
-                hour = datetime.fromisoformat(session["timestamp"]).hour
-                duration = session.get("duration", 0)
+            for session in sessions:
+                hour = session.completed_at.hour
+                duration = session.duration_minutes
                 
                 if 6 <= hour < 12:
                     time_distribution["Morning (6AM-12PM)"] += duration
@@ -218,25 +251,15 @@ class TrackerAgent(BaseAgent):
                 hours = minutes / 60
                 response += f"• {time_slot}: {minutes} min ({hours:.1f} hrs)\n"
             
-            # Add streak information
-            current_streak = metrics.get("current_streak", 0)
-            longest_streak = metrics.get("longest_streak", 0)
-            
-            response += (
-                f"\n*🔥 Current Streak:* {current_streak} days\n"
-                f"*🏆 Longest Streak:* {longest_streak} days\n\n"
-            )
-            
             # Add insights
-            response += "*💡 Insights & Tips:*\n"
+            response += "\n*💡 Insights & Tips:*\n"
             
             # Generate insights based on data
             if time_distribution["Morning (6AM-12PM)"] > time_distribution["Evening (5PM-10PM)"]:
                 response += "• You're a morning person! Your most productive hours are before noon.\n"
             else:
                 response += "• You're more productive in the evenings. Try to schedule challenging topics during this time.\n"
-            if current_streak >= 3:
-                response += f"• Great job on your {current_streak}-day study streak! Consistency is key to success.\n"
+            
             response += "\nKeep up the good work! 🚀"
             
             return response
@@ -244,6 +267,8 @@ class TrackerAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Error generating analytics: {str(e)}", exc_info=True)
             return "I couldn't generate your analytics. Please try again later."
+        finally:
+            db.close()
     
     async def _manage_goals(self, phone_number: str, message: str) -> str:
         """Manage study goals (set, update, or view)."""
